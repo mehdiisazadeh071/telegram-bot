@@ -3,7 +3,7 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import google.generativeai as genai
+from google import genai
 
 # --- ۱. وب‌سرور صوری برای راضی نگه داشتن Render ---
 class DummyHandler(BaseHTTPRequestHandler):
@@ -17,15 +17,14 @@ def run_dummy_server():
     server = HTTPServer(("0.0.0.0", port), DummyHandler)
     server.serve_forever()
 
-# --- ۲. دریافت توکن‌ها ---
+# --- ۲. تنظیمات توکن‌ها و کلاینت جدید جمنای ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_KEY = os.getenv("GEMINI_KEY")
 
-# تنظیم کلید جمنای با مدل عمومی و پایدار gemini-pro
-genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel("gemini-pro")
+# تعریف کلاینت با پکیج جدید google-genai
+client = genai.Client(api_key=GEMINI_KEY)
 
-# --- ۳. پردازش پیام‌ها ---
+# --- ۳. پردازش پیام‌های گروه ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
@@ -47,8 +46,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     try:
-        # ارسال به جمنای
-        response = model.generate_content(text)
+        # درخواست به API جمنای با آخرین مدل فعال gemini-2.5-flash
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=text,
+        )
         if response.text:
             await update.message.reply_text(response.text)
         else:
