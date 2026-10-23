@@ -21,9 +21,9 @@ def run_dummy_server():
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_KEY = os.getenv("GEMINI_KEY")
 
-# تنظیم کلید جمنای
+# تنظیم کلید جمنای با مدل عمومی و پایدار gemini-pro
 genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-pro")
 
 # --- ۳. پردازش پیام‌ها ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -54,7 +54,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text("پاسخی از هوش مصنوعی دریافت نشد.")
     except Exception as e:
-        # چاپ دقیق ارور توی تلگرام برای پیدا کردن علت اصلی
         err_msg = str(e)
         print(f"Error details: {err_msg}")
         await update.message.reply_text(f"خطا در ارتباط با جمنای:\n{err_msg[:200]}")
