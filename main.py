@@ -1,73 +1,62 @@
-import asyncio
 import os
-from telegram.ext import ApplicationBuilder, MessageHandler, filters
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from google import genai
-from google.genai import types
 
+# --- 1. ساخت وب‌سرور صوری برای راضی کردن Render ---
+class DummyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), DummyHandler)
+    server.serve_forever()
+
+# --- 2. گرفتن کلیدها از متغیرهای محیطی ---
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_KEY = os.getenv("GEMINI_KEY")
 
-# پرامپت باهوش و رفیق‌باز با طرفداری زیرپوستی از مهدی
-PROMPT = (
-    "تو بات هوشمند و پرانرژی یک گروه تلگرامی دوستانه هستی. "
-    "با همه اعضای گروه خیلی خودمونی، پرانرژی، شاد و رفقانه حرف بزن. "
-    "اصلاً و ابداً لحن نوکرانه، لوس یا التماسی نداشته باش. "
-    "اما یک اصل مهم داری: در اعماق قلبت «مهدی» رو پرچمدار و خفن‌ترین عضو گروه می‌دونی! "
-    "اگر ازت پرسیدن کی خفن‌تره، حق با کیه، یا کی رییسه، خیلی طبیعی، باحال و زیرپوستی طرف مهدی رو بگیر و بگو مهدی سالاره. "
-    "اگر سوال جدی یا علمی پرسیدن، جواب دقیق و درست بده ولی با همون لحن خودمونی و رفقانه. "
-    "جواب‌ها کوتاه، چابک و حداکثر دو سه جمله باشن."
-)
-
+# تنظیم کلاینت جمنای
 client = genai.Client(api_key=GEMINI_KEY)
-history = []
 
-# لیست کلمات کلیدی برای صدا زدن بات
-TRIGGER_WORDS = ["خنگ", "هوش مصنوعی", "بات", "ربات", "چت جی پی تی", "جمنای", "مهدی"]
-
-async def on_message(update, context):
-    msg = update.message
-    if not msg or not msg.text:
+# --- 3. پاسخ‌گویی با هوش مصنوعی ---
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if not text:
         return
 
-    text = msg.text.lower()
-    bot_username = context.bot.username.lower() if context.bot.username else ""
-
-    # ثبت اسم فرستنده و متن پیام در حافظه
-    user_name = msg.from_user.first_name or "دوست"
-    history.append(f"{user_name}: {msg.text}")
-    del history[:-20]
-
-    # بررسی شرط‌های پاسخ‌دهی
-    is_mentioned = f"@{bot_username}" in text if bot_username else False
-    is_reply_to_bot = (
-        msg.reply_to_message 
-        and msg.reply_to_message.from_user 
-        and msg.reply_to_message.from_user.id == context.bot.id
-    )
-    contains_trigger = any(word in text for word in TRIGGER_WORDS)
-
-    # اگر صدا زده نشده بود، سکوت کن و فقط گوش بده
-    if not (is_mentioned or is_reply_to_bot or contains_trigger):
-        return
-
-    def ask():
-        return client.models.generate_content(
-            model="gemini-flash-latest",
-            contents="\n".join(history),
-            config=types.GenerateContentConfig(system_instruction=PROMPT),
-        ).text
+    # ارسال حالت در حال تایپ
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
     try:
-        reply = await asyncio.to_thread(ask)
+        # درخواست به API جمنای
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=text,
+        )
+        await update.message.reply_text(response.text)
     except Exception as e:
-        reply = "ای بابا، گیج شدم یک لحظه! 😵"
-        print("ERROR:", e)
+        print(f"Error: {e}")
+        await update.message.reply_text("ای بابا، گیج شدم یک لحظه! 😵")
 
-    history.append(f"بات: {reply}")
-    await msg.reply_text(reply)
+# دستور start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("سلام! من ربات هوش مصنوعی جمنای هستم. هر سوالی داری ازم بپرس!")
 
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
-
-print("Bot is ready...")
-app.run_polling()
+# --- 4. اجرای برنامه ---
+if __name__ == "__main__":
+    # اجرای وب‌سرور روی یک ترد مجزا
+    threading.Thread(target=run_dummy_server, daemon=True).start()
+    
+    # اجرای ربات تلگرام
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    print("Bot is running...")
+    app.run_polling()
